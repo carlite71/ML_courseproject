@@ -1,0 +1,141 @@
+# Practical Machine Learning Project
+#### by C. Risso, December 2015
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively.  One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. The goal of this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Data
+The training data for this project are available here: [https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv]
+
+The test data are available here: [https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv]
+
+The data for this project come from this source: [http://groupware.les.inf.puc-rio.br/har]. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+## Reproducibility: R versions, packages, seed.
+This report was generated with R Studio 0.99.489, R version 3.2.3.
+The following packages were used in this project: caret, rattle, rpart and randomForest.
+The pseudo-random seed was set to 1234.
+
+```{r, message=FALSE}
+# Load necessary libraries
+library(caret)
+library(rattle) 
+library(rpart)
+library(randomForest)
+
+set.seed(1234)
+```
+
+## Load & clean datasets
+```{r}
+
+URL_training = "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+
+URL_testing = "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+
+# read data into dataframes, assign NA to missing/error values
+training = read.csv(url(URL_training), na.strings = c("", "#DIV/0!", "NA"))
+testing = read.csv(url(URL_testing), na.strings = c("", "#DIV/0!", "NA"))
+
+```
+
+## Split training set into sub-training and sub-testing for cross-validation
+
+```{r}
+inTrain = createDataPartition(y=training$classe, p=0.8, list=FALSE)
+
+subtrain = training[inTrain,]
+subtest = training[-inTrain,]
+
+dim(subtrain) ; dim(subtest)
+```
+
+## Cleaning the dataset
+
+```{r}
+
+# Remove first seven columns (superfluous for ML) in the "subtrain" dataset.
+
+subtrain = subtrain[,-c(1:7)]
+
+# Some of the numeric variables have too many NAs. I'm removing those with > 60 % of NAs.
+
+del = apply(subtrain, 2, function(x) sum(is.na(x)))/nrow(subtrain)
+
+subtrain = subtrain[!(del>0.60)]
+
+dim(subtrain)
+
+# Run the same transformations in the subtest dataset (cross-validation):
+
+reduced_cols = colnames(subtrain)
+subtest = subtest[reduced_cols]
+
+# check dimensions
+dim(subtest)
+```
+
+## Apply Machine Learning algorithms 
+
+### CART model using the caret package
+```{r}
+# fit model using the caret package with method rpart
+CARTmod = train(classe~., method = "rpart", data=subtrain)
+
+fancyRpartPlot(CARTmod$finalModel)
+
+# predicting on the subtest (cross-validation)
+
+predictCART = predict(CARTmod, newdata = subtest)
+
+confusionMatrix(predictCART, subtest$classe)
+```
+
+This model has low accuracy (48.5%) and high expected out-of-sample error, 51.5%
+A random forest approach will be considered next.
+
+### Random Forest approach
+
+```{r}
+
+# fit a model using the randomForest package. 
+
+rfmod = randomForest(classe~., data=subtrain)
+
+# predicting with sub-test (cross-validation)
+predictrf = predict(rfmod, newdata = subtest)
+
+# calculating out-of-sample error
+confusionMatrix(predictrf, subtest$classe)
+```
+
+The Random Forest method yielded superior classification, with high accuracy (>99 %) and expected out-of-sample error of 0.5%
+Thus, this was the algorithm used in test predictions.
+
+## Generating answers for submission
+```{r}
+# generating answers
+
+answers = predict(rfmod, testing)
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(answers)
+```
+
+## Discussion
+
+This dataset consisted of 19622 observations. 80% of these observations were used to build a predictive algorithm, and the rest were used for cross-validation and to estimate out-of-sample error. Prior to applying any training model, the data ware cleaned by removing superflouos features and numerical variables with over 60% NA values.
+
+Two different approaches were used to build a predictive algorithm: decision trees and random forest. The first attempt with a CART model produced poor results, the resulting decision tree had too few leaves and had a high out-of-sample error. The second attempt, with the randomForest package, resulted in a powerful algorithm with over 98% sensitivity, over 99% specificity in all categories and only 0.5% predicted out-of-sample error. In fact, when tested in the submission test samples, 100% of the set was correctly classified in its proper category.
+
+Despite the high quality of this algorithm, it is worth mentioning that its predictive power may be restricted to observations that are similar in nature to those used to build the model. The data used here was collected only for a certain type of individuals under very specific conditions. The validity of this model for a more general population remains undetermined.
